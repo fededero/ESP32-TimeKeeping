@@ -44,7 +44,7 @@ timingMode_t timingMode;
 
 //Change to SLAVE MAC address (PIT/END Unit)
 uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x4D, 0x2D, 0xBC};
-uint32_t startTime, stopTime, deltaTime;
+uint32_t startTime, stopTime, deltaTime, sumOfLap;
 bool isTiming, newLap=false;
 uint8_t lapNumber;
 
@@ -102,17 +102,22 @@ void IRAM_ATTR accCellInterrupt(){
 
 void IRAM_ATTR skidCellInterrupt(){
   if(isTiming){
-    stopTime=millis();
-    deltaTime=stopTime-startTime;
-    lapNumber++;
-    if(lapNumber==5){
-      isTiming=false;
+    if((millis()-startTime)>1000){
+      stopTime=millis();
+      deltaTime=stopTime-startTime;
+      startTime=stopTime;
+      lapNumber++;
+      if(lapNumber==2 || lapNumber==4) sumOfLap+=deltaTime;
+      if(lapNumber==4){
+        isTiming=false;
+      }
+      newLap=true;
     }
-    newLap=true;
   }
   else{
+    sumOfLap=0;
     startTime=millis();
-    lapNumber=1;
+    lapNumber=0;
     isTiming=true;
   }
   return;
@@ -121,7 +126,7 @@ void IRAM_ATTR skidCellInterrupt(){
 
 
 void setup() {
-  timingMode=lap;
+  timingMode=skidpad;
   elapsedTime.minutes=0;
   elapsedTime.seconds=0;
   elapsedTime.milliseconds=0;
@@ -133,7 +138,7 @@ void setup() {
   BLEInit();
 
   pinMode(CELLPIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(CELLPIN), lapCellInterrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(CELLPIN), skidCellInterrupt, FALLING);
 
   Serial.println("Power On Master Board");
 }
@@ -141,11 +146,14 @@ void setup() {
 void loop() {
   
  if(newLap==true){
-  deltaToElapsed(deltaTime);
-  if(deviceConnected) lapTimeToBLE();
-  lapTimeToDisplay();
-  lapTimeToSerial();
-  newLap=false;
+    sendDelta();
+    newLap=false;
+    if(timingMode==skidpad && lapNumber==4){
+      deltaTime=sumOfLap/2;
+      lapNumber++;
+      sendDelta();
+    }
+  
  }
 
   // disconnecting
@@ -164,6 +172,15 @@ void loop() {
     Serial.println("Device Connected");
   }
 
+}
+
+void sendDelta(){
+  deltaToElapsed(deltaTime);
+  if(deviceConnected) lapTimeToBLE();
+  lapTimeToDisplay();
+  lapTimeToSerial();
+  
+  
 }
 
 //Starts ESP-NOW communication with slave unit
