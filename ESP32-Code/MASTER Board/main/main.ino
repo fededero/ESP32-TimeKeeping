@@ -1,5 +1,12 @@
 #include <WiFi.h>
 #include <esp_now.h>
+//#include <BLEDevice.h>
+//#include <BLEServer.h>
+//#include <BLEUtils.h>
+//#include <BLE2902.h>
+
+#include <NimBLEDevice.h>
+
 #define CELLPIN 23
 
 /*
@@ -7,8 +14,19 @@
  *  DYNAMIS PRC - 2024
  *  Master board (START/NEW LAP) firmware
  *  
- *  Connect via Bluetooth, then visit: www.test.com
+ *  Visit on a BLE Enabled Browser: www.test.com
 */
+
+BLEServer* pServer = NULL;
+BLECharacteristic* pSensorCharacteristic = NULL;
+
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+uint32_t value = 0;
+String sendBLE = "";
+
+#define SERVICE_UUID        "19b10000-e8f2-537e-4f6c-d104768a1214"
+#define SENSOR_CHARACTERISTIC_UUID "19b10001-e8f2-537e-4f6c-d104768a1214"
 
 struct elapsedTime_t{
   uint8_t minutes;
@@ -31,7 +49,6 @@ bool isTiming, newLap=false;
 uint8_t lapNumber;
 
 esp_now_peer_info_t peerInfo;
-
 
 void lapSlaveInterrupt(const uint8_t * mac, const uint8_t *incomingData, int len){
   if(isTiming){
@@ -58,11 +75,13 @@ void accSlaveInterrupt(const uint8_t * mac, const uint8_t *incomingData, int len
 
 void IRAM_ATTR lapCellInterrupt(){
   if(isTiming){
-    stopTime=millis();
-    deltaTime=stopTime-startTime;
-    startTime=stopTime;
-    newLap=true;
-    lapNumber++;
+    if((millis()-startTime)>1000){
+      stopTime=millis();
+      deltaTime=stopTime-startTime;
+      startTime=stopTime;
+      newLap=true;
+      lapNumber++;
+    }
   }
   else{
     startTime=millis();
@@ -111,6 +130,7 @@ void setup() {
   //COM Init
   Serial.begin(115200);
   WiFiInit();
+  BLEInit();
 
   pinMode(CELLPIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(CELLPIN), lapCellInterrupt, FALLING);
@@ -122,11 +142,27 @@ void loop() {
   
  if(newLap==true){
   deltaToElapsed(deltaTime);
-  lapTimeToBLE();
+  if(deviceConnected) lapTimeToBLE();
   lapTimeToDisplay();
   lapTimeToSerial();
   newLap=false;
  }
+
+  // disconnecting
+  if (!deviceConnected && oldDeviceConnected) {
+    Serial.println("Device disconnected.");
+    delay(500); // give the bluetooth stack the chance to get things ready
+    pServer->startAdvertising(); // restart advertising
+    Serial.println("Start advertising");
+    oldDeviceConnected = deviceConnected;
+  }
+  
+  // connecting
+  if (deviceConnected && !oldDeviceConnected) {
+    // do stuff here on connecting
+    oldDeviceConnected = deviceConnected;
+    Serial.println("Device Connected");
+  }
 
 }
 
@@ -154,6 +190,64 @@ void WiFiInit(){
     return;
 }
 
+class MyServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+  };
+
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+  }
+};
+
+
+
+void BLEInit(){
+
+  // Create the BLE Device
+  BLEDevice::init("TimeKeep");
+
+  // Create the BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // Create a BLE Characteristic
+  pSensorCharacteristic = pService->createCharacteristic(
+                      SENSOR_CHARACTERISTIC_UUID,
+                      NIMBLE_PROPERTY::READ   |
+                      NIMBLE_PROPERTY::WRITE  |
+                      NIMBLE_PROPERTY::NOTIFY |
+                      NIMBLE_PROPERTY::INDICATE
+                    );
+
+  // Create the ON button Characteristic
+  
+
+  // Register the callback for the ON button characteristic
+ 
+
+  // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
+  // Create a BLE Descriptor
+  //pSensorCharacteristic->addDescriptor(new BLE2902());
+  
+
+  // Start the service
+  pService->start();
+
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(false);
+  pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
+  BLEDevice::startAdvertising();
+  Serial.println("Waiting a client connection to notify...");
+
+  return;
+}
+
 
 void deltaToElapsed(uint32_t milliseconds){
   
@@ -167,6 +261,12 @@ void deltaToElapsed(uint32_t milliseconds){
 }
 
 void lapTimeToBLE(){
+    sendBLE = String(deltaTime).c_str();
+    if(lapNumber<10) sendBLE.concat("0");
+    sendBLE.concat(String(lapNumber).c_str());
+    pSensorCharacteristic->setValue(sendBLE);
+    pSensorCharacteristic->notify();
+  
   return;
 }
 
