@@ -1,9 +1,5 @@
 #include <WiFi.h>
 #include <esp_now.h>
-//#include <BLEDevice.h>
-//#include <BLEServer.h>
-//#include <BLEUtils.h>
-//#include <BLE2902.h>
 
 #include <NimBLEDevice.h>
 
@@ -40,23 +36,31 @@ typedef enum timingMode_t{
   acceleration,
   skidpad
 };
+
+typedef struct message_t{
+  uint32_t delay;
+} message_t;
+
+message_t message;
+
 timingMode_t timingMode;
 
 //Change to SLAVE MAC address (PIT/END Unit)
 uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x4D, 0x2D, 0xBC};
 uint32_t startTime, stopTime, deltaTime, sumOfLap, lastButtonPress;
-bool isTiming, newLap=false;
+bool isTiming, newLap=false, inPit=false, sendPit=false;
 uint8_t lapNumber;
 
 esp_now_peer_info_t peerInfo;
 
 void lapSlaveInterrupt(const uint8_t * mac, const uint8_t *incomingData, int len){
-  if(isTiming){
+  if(isTiming && !inPit){
+    memcpy(&message, incomingData, sizeof(message_t));
     stopTime=millis();
-    deltaTime=stopTime-startTime;
+    deltaTime=stopTime-startTime-message.delay;
     startTime=stopTime;
     newLap=true;
-    isTiming=false;
+    inPit=true;
     lapNumber++;
   }
   return;
@@ -64,8 +68,9 @@ void lapSlaveInterrupt(const uint8_t * mac, const uint8_t *incomingData, int len
 
 void accSlaveInterrupt(const uint8_t * mac, const uint8_t *incomingData, int len){
   if(isTiming){
+    memcpy(&message, incomingData, sizeof(message_t));
     stopTime=millis();
-    deltaTime=stopTime-startTime;
+    deltaTime=stopTime-startTime-message.delay;
     isTiming=false;
     newLap=true;
   }
@@ -79,8 +84,14 @@ void IRAM_ATTR lapCellInterrupt(){
       stopTime=millis();
       deltaTime=stopTime-startTime;
       startTime=stopTime;
-      newLap=true;
-      lapNumber++;
+      if(inPit){
+        inPit=false;
+        sendPit=true;
+      }
+      else{
+        newLap=true;
+        lapNumber++;
+      }
     }
   }
   else{
@@ -144,7 +155,7 @@ void IRAM_ATTR modeButtonInterrupt(){
 
 
 void setup() {
-  timingMode=skidpad;
+  timingMode=lap;
   elapsedTime.minutes=0;
   elapsedTime.seconds=0;
   elapsedTime.milliseconds=0;
@@ -156,23 +167,35 @@ void setup() {
   BLEInit();
 
   pinMode(CELLPIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(CELLPIN), skidCellInterrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(CELLPIN), lapCellInterrupt, FALLING);
 
   Serial.println("Power On Master Board");
 }
 
 void loop() {
   
- if(newLap==true){
-    sendDelta(lapNumberToString());
+ if(newLap){
+    
     newLap=false;
-    if(timingMode==skidpad && lapNumber==4){
-      deltaTime=sumOfLap/2;
-      sendDelta(String("AVG"));
+    if(timingMode==acceleration){
+      sendDelta("ACC");
     }
-  
+    else{
+      sendDelta(lapNumberToString());
+      if(timingMode==skidpad && lapNumber==4){
+        deltaTime=sumOfLap/2;
+        sendDelta(String("AVG"));
+      }
+    }
  }
 
+ if(sendPit){
+  sendPit=false;
+  sendDelta("PIT");
+ }
+
+ 
+  /*
   // disconnecting
   if (!deviceConnected && oldDeviceConnected) {
     Serial.println("Device disconnected.");
@@ -187,7 +210,7 @@ void loop() {
     // do stuff here on connecting
     oldDeviceConnected = deviceConnected;
     Serial.println("Device Connected");
-  }
+  }*/
 
 }
 
