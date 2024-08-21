@@ -44,7 +44,7 @@ timingMode_t timingMode;
 
 //Change to SLAVE MAC address (PIT/END Unit)
 uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x4D, 0x2D, 0xBC};
-uint32_t startTime, stopTime, deltaTime, sumOfLap;
+uint32_t startTime, stopTime, deltaTime, sumOfLap, lastButtonPress;
 bool isTiming, newLap=false;
 uint8_t lapNumber;
 
@@ -123,6 +123,24 @@ void IRAM_ATTR skidCellInterrupt(){
   return;
 }
 
+void IRAM_ATTR modeButtonInterrupt(){
+  if((millis()-lastButtonPress)>500){
+    lastButtonPress=millis();
+    switch(timingMode){
+      case lap:
+        modeToSkid();
+      break;
+      case skidpad:
+        modeToAcc();
+      break;
+      case acceleration:
+        modeToLap();
+      break;
+    }
+  }
+  return;
+}
+
 
 
 void setup() {
@@ -146,12 +164,11 @@ void setup() {
 void loop() {
   
  if(newLap==true){
-    sendDelta();
+    sendDelta(lapNumberToString());
     newLap=false;
     if(timingMode==skidpad && lapNumber==4){
       deltaTime=sumOfLap/2;
-      lapNumber++;
-      sendDelta();
+      sendDelta(String("AVG"));
     }
   
  }
@@ -174,13 +191,26 @@ void loop() {
 
 }
 
-void sendDelta(){
+String lapNumberToString(){
+  String lapStr;
+  lapStr = String("").c_str();
+  if(lapNumber<10) lapStr.concat("0");
+  if(lapNumber<100) lapStr.concat("0");
+  lapStr.concat(String(lapNumber).c_str());
+
+  Serial.println(lapStr);
+  Serial.println(lapNumber);
+  
+  return lapStr;
+}
+
+void sendDelta(String lapStr){
   deltaToElapsed(deltaTime);
-  if(deviceConnected) lapTimeToBLE();
+  if(deviceConnected) lapTimeToBLE(lapStr);
   lapTimeToDisplay();
   lapTimeToSerial();
   
-  
+  return;
 }
 
 //Starts ESP-NOW communication with slave unit
@@ -277,10 +307,9 @@ void deltaToElapsed(uint32_t milliseconds){
   return;
 }
 
-void lapTimeToBLE(){
+void lapTimeToBLE(String lapStr){
     sendBLE = String(deltaTime).c_str();
-    if(lapNumber<10) sendBLE.concat("0");
-    sendBLE.concat(String(lapNumber).c_str());
+    sendBLE.concat(lapStr.c_str());
     pSensorCharacteristic->setValue(sendBLE);
     pSensorCharacteristic->notify();
   

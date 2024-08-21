@@ -29,7 +29,7 @@
             </div>
             <div class="card">
                 <h2>Lap Number</h2>
-                <p class="reading"><span id="lapNumberField">0</span></p>
+                <p class="reading"><span id="lapNumberField">000</span></p>
                 <p class="gray-label">Last reading: <span id="timestamp2"></span></p>
             </div>
         </div>
@@ -120,7 +120,7 @@
         })
         .then(device => {
             console.log('Device Selected:', device.name);
-            bleStateContainer.innerHTML = 'Connected to device ' + device.name;
+            bleStateContainer.innerHTML = 'Connected';
             bleStateContainer.style.color = "#24af37";
             device.addEventListener('gattservicedisconnected', onDisconnected);
             return device.gatt.connect();
@@ -166,9 +166,9 @@
         newValueReceived = new TextDecoder().decode(event.target.value);
         console.log("Characteristic value changed: ", newValueReceived);
 
-        lapNumber = newValueReceived.slice(-2);
+        lapNumber = newValueReceived.slice(-3);
         console.log("newValue: ", newValueReceived);
-        newValueReceived = newValueReceived.slice(0, -2);
+        newValueReceived = newValueReceived.slice(0, -3);
 
         var millisecondsTemp = newValueReceived%1000;
         newValueReceived=newValueReceived-millisecondsTemp;
