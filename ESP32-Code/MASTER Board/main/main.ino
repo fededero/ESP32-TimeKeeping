@@ -10,7 +10,7 @@
  *  DYNAMIS PRC - 2024
  *  Master board (START/NEW LAP) firmware
  *  
- *  Visit on a BLE Enabled Browser: www.test.com
+ *  Visit on a BLE Enabled Browser: https://federicoderocco.altervista.org/dynamis/TimeKeeping.html
 */
 
 BLEServer* pServer = NULL;
@@ -169,7 +169,7 @@ void setup() {
   pinMode(CELLPIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(CELLPIN), lapCellInterrupt, FALLING);
 
-  Serial.println("Power On Master Board");
+
 }
 
 void loop() {
@@ -195,13 +195,12 @@ void loop() {
  }
 
  
-  /*
   // disconnecting
   if (!deviceConnected && oldDeviceConnected) {
-    Serial.println("Device disconnected.");
-    delay(500); // give the bluetooth stack the chance to get things ready
+
+    delay(50); // give the bluetooth stack the chance to get things ready
     pServer->startAdvertising(); // restart advertising
-    Serial.println("Start advertising");
+
     oldDeviceConnected = deviceConnected;
   }
   
@@ -209,8 +208,8 @@ void loop() {
   if (deviceConnected && !oldDeviceConnected) {
     // do stuff here on connecting
     oldDeviceConnected = deviceConnected;
-    Serial.println("Device Connected");
-  }*/
+
+  }
 
 }
 
@@ -221,8 +220,6 @@ String lapNumberToString(){
   if(lapNumber<100) lapStr.concat("0");
   lapStr.concat(String(lapNumber).c_str());
 
-  Serial.println(lapStr);
-  Serial.println(lapNumber);
   
   return lapStr;
 }
@@ -230,8 +227,8 @@ String lapNumberToString(){
 void sendDelta(String lapStr){
   deltaToElapsed(deltaTime);
   if(deviceConnected) lapTimeToBLE(lapStr);
-  lapTimeToDisplay();
-  lapTimeToSerial();
+  lapTimeToDisplay(lapStr);
+  lapTimeToSerial(lapStr);
   
   return;
 }
@@ -242,7 +239,7 @@ void WiFiInit(){
     //Start WiFi in ESP-NOW Mode
     WiFi.mode(WIFI_STA);
     if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
+
     }
 
     //Set callback functions
@@ -254,7 +251,7 @@ void WiFiInit(){
     //Add Slave unit
     memcpy(peerInfo.peer_addr, broadcastAddress, 6);
     if (esp_now_add_peer(&peerInfo) != ESP_OK){
-      Serial.println("Failed to add peer");
+
     }
   
     return;
@@ -313,7 +310,6 @@ void BLEInit(){
   pAdvertising->setScanResponse(false);
   pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
   BLEDevice::startAdvertising();
-  Serial.println("Waiting a client connection to notify...");
 
   return;
 }
@@ -339,20 +335,15 @@ void lapTimeToBLE(String lapStr){
   return;
 }
 
-void lapTimeToDisplay(){
+void lapTimeToDisplay(String lapStr){
   return;
 }
 
-void lapTimeToSerial(){
-  Serial.print("Lap N.");
-  Serial.print(lapNumber);
-  Serial.print("  ");
-  Serial.print(elapsedTime.minutes);
-  Serial.print(":");
-  Serial.print(elapsedTime.seconds);
-  Serial.print(":");
-  Serial.println(elapsedTime.milliseconds);
-  Serial.println(deltaTime);
+void lapTimeToSerial(String lapStr){
+    sendBLE = String(deltaTime).c_str();
+    sendBLE.concat(lapStr.c_str());
+    Serial.println(sendBLE);
+  
   return;
 }
 

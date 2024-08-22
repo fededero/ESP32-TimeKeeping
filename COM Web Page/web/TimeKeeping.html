@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<!-- saved from url=(0047)https://ruisantosdotme.github.io/esp32-web-ble/ -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>Timekeeping Web Page</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="favicon.ico">
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <script type="text/javascript" src="/eel.js"></script>
+    
+</head>
+<body id="body">
+    <div class="topnav">
+        <h1>Timekeeping Web Page</h1>
+    </div>
+    <div class="content">
+        <div class="card-grid">
+            <div class="card">
+                <p id="buttonCard">
+                    <button id="listButton" class="connectButton"> List COM Ports</button>
+                </p>
+                <div class="table_component" role="region" tabindex="0">
+                    <table id="portsTable">
+                        <thead>
+                            <tr>
+                                <th>COM Port<br></th>
+                                <th>Description<br></th>
+                                <th>Connect<br></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="card-grid">   
+            <div class="card">
+                <h2>Last Lap Time</h2>
+                <p class="reading"><span id="valueContainer">00:00:000</span></p>
+                <p class="gray-label">Last reading: <span id="timestamp"></span></p>
+            </div>
+            <div class="card">
+                <h2>Lap Number</h2>
+                <p class="reading"><span id="lapNumberField">000</span></p>
+                <p class="gray-label">Last reading: <span id="timestamp2"></span></p>
+            </div>
+        </div>
+        <div class="card-grid">
+            <div class="card">
+                <div class="table_component" role="region" tabindex="0">
+                    <table id="lapTable">
+                        <thead>
+                            <tr>
+                                <th>Lap Time<br></th>
+                                <th>Lap<br></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                        </tbody>
+                    </table>
+                </div>
+				<button id="deleteRows" class="disconnectButton"> Delete all rows</button>				
+            </div>
+        </div>
+		
+    </div>
+
+    <div class="footer">
+        <p>Find everything you need on the project's github page: <a href="https://github.com/fededero/ESP32-TimeKeeping">ESP32-TimeKeeping</a></p>
+    </div>
+
+<script>
+    // DOM Elements
+    const listButton = document.getElementById('listButton');
+    const disconnectButton = document.getElementById('disconnectBleButton');
+    const retrievedValue = document.getElementById('valueContainer');
+    const bleStateContainer = document.getElementById('bleState');
+    const timestampContainer = document.getElementById('timestamp');
+    const timestamp2Container = document.getElementById('timestamp2');
+    const lapNumberField = document.getElementById('lapNumberField');
+    const lapTable = document.getElementById("lapTable");
+	const exportCSVButton = document.getElementById('exportCSV');
+	const deleteRowsButton = document.getElementById('deleteRows');
+    const buttonCard = document.getElementById('buttonCard');
+    const portsTable = document.getElementById('portsTable');
+    const body = document.getElementById('body');
+
+    //Global Variables to Handle Bluetooth
+    var bleServer;
+    var bleServiceFound;
+    var sensorCharacteristicFound;
+    var lapNumberCharacteristicFound;
+
+    var lapTime;
+    var lapNumber;
+
+    // Connect Button
+    listButton.addEventListener("click", ()=>{eel.listPorts()}, false);
+
+	deleteRowsButton.addEventListener('click', deleteAllRowsLap);
+
+    body.addEventListener('load', ()=>{eel.listPorts()}, false)
+
+
+    // Connect to BLE Device and Enable Notifications
+
+
+
+    function deleteAllRowsLap(){
+        deleteAllRows(lapTable, 2);
+    }
+
+    function onDisconnected(event){
+        console.log('Device Disconnected:', event.target.device.name);
+        bleStateContainer.innerHTML = "Device disconnected";
+        bleStateContainer.style.color = "#d13a30";
+
+        connectToDevice();
+    }
+
+
+    eel.expose(listPorts);
+    function listPorts(ports){
+        console.log(ports);
+        deleteAllRows(portsTable, 1);
+        for (let n in ports){
+            var row = portsTable.insertRow(1);
+
+            var cellPort = row.insertCell(0);
+            var cellDescription = row.insertCell(1)
+            var cellButton = row.insertCell(2);
+
+            newButton = document.createElement('button');
+            newButton.textContent = 'Connect';
+            newButton.className = 'connectButton';
+
+            cellPort.innerHTML = ports[n][0];
+            cellDescription.innerHTML = ports[n][1];
+
+            cellButton.appendChild(newButton);
+
+            newButton.addEventListener("click", ()=>{eel.connectToCOM(n);});
+        }
+    }
+
+    function comConnect(n){
+        console.log(n);
+    }
+
+    eel.expose(characteristicChange);
+    function characteristicChange(newValueReceived){
+        
+        console.log("Characteristic value changed: ", newValueReceived);
+
+
+        lapNumber = newValueReceived.slice(-3);
+        console.log("newValue: ", newValueReceived);
+        newValueReceived = newValueReceived.slice(0, -3);
+
+        var millisecondsTemp = newValueReceived%1000;
+        newValueReceived=newValueReceived-millisecondsTemp;
+        newValueReceived=newValueReceived/1000;
+
+        var secondsTemp = newValueReceived%60;
+        newValueReceived = newValueReceived-secondsTemp;
+
+        lapTime = new elapsedTime(millisecondsTemp, secondsTemp, newValueReceived/60);
+        lapNumberField.innerHTML = lapNumber;
+        retrievedValue.innerHTML = elapsedTimeToString(lapTime);
+        timestampContainer.innerHTML = getDateTime();
+        timestamp2Container.innerHTML = getDateTime();
+
+        var row = lapTable.insertRow(1);
+
+        var cellTime = row.insertCell(0);
+        var cellLap = row.insertCell(1);
+
+        cellTime.innerHTML = retrievedValue.innerHTML;
+        cellLap.innerHTML = lapNumberField.innerHTML;
+
+    }
+
+    function disconnectDevice() {
+        
+    }
+
+    function getDateTime() {
+        var currentdate = new Date();
+        var day = ("00" + currentdate.getDate()).slice(-2); // Convert day to string and slice
+        var month = ("00" + (currentdate.getMonth() + 1)).slice(-2);
+        var year = currentdate.getFullYear();
+        var hours = ("00" + currentdate.getHours()).slice(-2);
+        var minutes = ("00" + currentdate.getMinutes()).slice(-2);
+        var seconds = ("00" + currentdate.getSeconds()).slice(-2);
+        
+        var datetime = day + "/" + month + "/" + year + " at " + hours + ":" + minutes + ":" + seconds;
+        return datetime;
+    }
+
+    //elapsed Time class
+    function elapsedTime(milliseconds, seconds, minutes){
+        this.milliseconds=milliseconds;
+        this.seconds=seconds;
+        this.minutes=minutes;
+    }
+
+    function elapsedTimeToString(lapTime){
+        var elapsedTimeString="";
+        elapsedTimeString = elapsedTimeString + lapTime.minutes.toString().padStart(2, '0') + ":";
+        elapsedTimeString = elapsedTimeString + lapTime.seconds.toString().padStart(2, '0') + ":";
+        elapsedTimeString = elapsedTimeString + lapTime.milliseconds.toString().padStart(3, '0');
+        return elapsedTimeString;
+    }
+
+    
+
+	function deleteAllRows(table, tableHeader){
+
+		var rowCount = table.rows.length;
+		for (var i = tableHeader; i < rowCount; i++) {
+    		lapTable.deleteRow(tableHeader);
+		}
+	}
+
+</script>
+
+
+</body></html>
