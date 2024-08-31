@@ -1,6 +1,8 @@
 #include <WiFi.h>
 #include <esp_now.h>
 
+#include <LiquidCrystal_I2C.h>
+
 #include <NimBLEDevice.h>
 
 #define CELLPIN 23
@@ -12,6 +14,9 @@
  *  
  *  Visit on a BLE Enabled Browser: https://federicoderocco.altervista.org/dynamis/TimeKeeping.html
 */
+
+//Change to SLAVE MAC address (PIT/END Unit)
+uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x4D, 0x2D, 0xBC};
 
 BLEServer* pServer = NULL;
 BLECharacteristic* pSensorCharacteristic = NULL;
@@ -37,6 +42,13 @@ typedef enum timingMode_t{
   skidpad
 };
 
+typedef enum checks_t{
+  ble=0,
+  wifi,
+  laser,
+  timing
+};
+
 typedef struct message_t{
   uint32_t delay;
 } message_t;
@@ -45,13 +57,64 @@ message_t message;
 
 timingMode_t timingMode;
 
-//Change to SLAVE MAC address (PIT/END Unit)
-uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x4D, 0x2D, 0xBC};
-uint32_t startTime, stopTime, deltaTime, sumOfLap, lastButtonPress;
-bool isTiming, newLap=false, inPit=false, sendPit=false;
+uint32_t startTime, stopTime, deltaTime, sumOfLap, lastButtonPress, lastWifiCheck;
+bool isTiming=false, isWifi=false, newLap=false, inPit=false, sendPit=false;
+bool isTimingOld = false, isWifiOld=false, isCellOld=false;
 uint8_t lapNumber;
 
+uint32_t dataWifi=0;
+
 esp_now_peer_info_t peerInfo;
+
+int lcdColumns = 16, lcdRows = 2;
+LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+
+
+byte laserIcon[] = {
+  B11111,
+  B01110,
+  B10101,
+  B00100,
+  B00000,
+  B00100,
+  B00000,
+  B00100
+};
+
+byte wifiIcon[] = {
+  B01110,
+  B10001,
+  B00100,
+  B01010,
+  B00000,
+  B00100,
+  B00000,
+  B11111
+};
+
+byte checkIcon[] = {
+  B00000,
+  B00000,
+  B00000,
+  B00001,
+  B00010,
+  B10100,
+  B01000,
+  B00000
+};
+
+byte clockIcon[] = {
+  B01110,
+  B10001,
+  B10101,
+  B10111,
+  B10001,
+  B10001,
+  B01110,
+  B00000
+};
+
+
 
 void lapSlaveInterrupt(const uint8_t * mac, const uint8_t *incomingData, int len){
   if(isTiming && !inPit){
@@ -152,6 +215,10 @@ void IRAM_ATTR modeButtonInterrupt(){
   return;
 }
 
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  isWifi=!status;
+}
+
 
 
 void setup() {
@@ -165,6 +232,7 @@ void setup() {
   Serial.begin(115200);
   WiFiInit();
   BLEInit();
+  DisplayInit();
 
   pinMode(CELLPIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(CELLPIN), lapCellInterrupt, FALLING);
@@ -174,8 +242,7 @@ void setup() {
 
 void loop() {
   
- if(newLap){
-    
+ if(newLap){ 
     newLap=false;
     if(timingMode==acceleration){
       sendDelta("ACC");
@@ -198,6 +265,8 @@ void loop() {
   // disconnecting
   if (!deviceConnected && oldDeviceConnected) {
 
+    setCheckFalse(ble);
+
     delay(50); // give the bluetooth stack the chance to get things ready
     pServer->startAdvertising(); // restart advertising
 
@@ -208,9 +277,92 @@ void loop() {
   if (deviceConnected && !oldDeviceConnected) {
     // do stuff here on connecting
     oldDeviceConnected = deviceConnected;
-
+    setCheckTrue(ble);
   }
 
+  if(isCellOld != digitalRead(CELLPIN)){
+    if(isCellOld)
+      setCheckTrue(laser);
+    else
+      setCheckFalse(laser);
+    isCellOld = !isCellOld;
+  }
+
+  if(isTiming != isTimingOld){
+    if(isTiming)
+      setCheckTrue(timing);
+    else
+      setCheckFalse(timing);
+    isTimingOld = isTiming;
+  }
+
+  if(isWifi != isWifiOld){
+    if(isWifi)
+      setCheckTrue(wifi);
+    else
+      setCheckFalse(wifi);
+    isWifiOld = isWifi;
+  }
+
+  if(millis()-lastWifiCheck>2000){
+    esp_err_t result = esp_now_send(0, (uint8_t *) &dataWifi, sizeof(uint32_t));
+    lastWifiCheck=millis();
+  }
+
+  
+}
+
+void DisplayInit(){
+  lcd.init();
+  lcd.backlight();
+  
+  displayMode();
+  lapTimeToDisplay("000");
+
+  lcd.createChar(0, checkIcon);
+  lcd.createChar(1, wifiIcon);
+  lcd.createChar(2, laserIcon);
+  lcd.createChar(3, clockIcon);
+
+  lcd.setCursor(12, 0);
+  lcd.write('B');
+  lcd.write(byte(1));
+  lcd.write(byte(2));
+  lcd.write(byte(3));
+
+  lcd.setCursor(12, 1);
+  lcd.print("xxxx");
+  
+  return;
+}
+
+void setCheckFalse(checks_t check){
+  lcd.setCursor(check+12, 1);
+  lcd.write('x');
+  return;
+}
+
+void setCheckTrue(checks_t check){
+  lcd.setCursor(check+12, 1);
+  lcd.write(byte(0));
+  return;
+}
+
+void displayMode(){
+  lcd.setCursor(0, 0);
+  switch(timingMode){
+    case lap:
+      lcd.print("LAP");
+    break;
+    case acceleration:
+      lcd.print("ACC");
+    break;
+    case skidpad:
+      lcd.print("SKD");
+    break;   
+  }
+
+  return;
 }
 
 String lapNumberToString(){
@@ -243,6 +395,7 @@ void WiFiInit(){
     }
 
     //Set callback functions
+    esp_now_register_send_cb(OnDataSent);
     esp_now_register_recv_cb(esp_now_recv_cb_t(lapSlaveInterrupt));
 
     peerInfo.channel = 0;  
@@ -290,15 +443,6 @@ void BLEInit(){
                       NIMBLE_PROPERTY::INDICATE
                     );
 
-  // Create the ON button Characteristic
-  
-
-  // Register the callback for the ON button characteristic
- 
-
-  // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
-  // Create a BLE Descriptor
-  //pSensorCharacteristic->addDescriptor(new BLE2902());
   
 
   // Start the service
@@ -326,6 +470,27 @@ void deltaToElapsed(uint32_t milliseconds){
   return;
 }
 
+String elapsedToString(elapsedTime_t et){
+  String temp = String("").c_str();
+
+  if(et.minutes<10) temp.concat(String(0).c_str());
+  temp.concat(String(et.minutes).c_str());
+
+  temp.concat(String(":").c_str());
+
+  if(et.seconds<10) temp.concat(String(0).c_str());
+  temp.concat(String(et.seconds).c_str());
+
+  temp.concat(String(":").c_str());
+
+  if(et.milliseconds<10) temp.concat(String(0).c_str());
+  if(et.milliseconds<100) temp.concat(String(0).c_str());
+  temp.concat(String(et.milliseconds).c_str());
+
+
+  return temp;
+}
+
 void lapTimeToBLE(String lapStr){
     sendBLE = String(deltaTime).c_str();
     sendBLE.concat(lapStr.c_str());
@@ -336,6 +501,13 @@ void lapTimeToBLE(String lapStr){
 }
 
 void lapTimeToDisplay(String lapStr){
+  lcd.setCursor(6, 0);
+  lcd.print(lapStr);
+
+
+  lcd.setCursor(0, 1);
+  lcd.print(elapsedToString(elapsedTime));
+  
   return;
 }
 
@@ -356,6 +528,8 @@ void modeToLap(){
   esp_now_unregister_recv_cb();
   esp_now_register_recv_cb(esp_now_recv_cb_t(lapSlaveInterrupt));
 
+  displayMode();
+
   return;
 }
 
@@ -368,6 +542,8 @@ void modeToAcc(){
   esp_now_unregister_recv_cb();
   esp_now_register_recv_cb(esp_now_recv_cb_t(accSlaveInterrupt));
 
+  displayMode();
+
   return;
 }
 
@@ -378,6 +554,8 @@ void modeToSkid(){
   timingMode=skidpad;
 
   esp_now_unregister_recv_cb();
+
+  displayMode();
 
   return;
 }
