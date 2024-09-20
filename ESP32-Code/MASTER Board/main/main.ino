@@ -5,7 +5,9 @@
 
 #include <NimBLEDevice.h>
 
-#define CELLPIN 23
+#define CELLPIN   23
+#define MODEPIN   35
+#define RESETPIN  34
 
 /*
  *  LAP Timing system for Formula Student events
@@ -58,7 +60,7 @@ message_t message;
 timingMode_t timingMode;
 
 uint32_t startTime, stopTime, deltaTime, sumOfLap, lastButtonPress, lastWifiCheck;
-bool isTiming=false, isWifi=false, newLap=false, inPit=false, sendPit=false;
+bool isTiming=false, isWifi=false, newLap=false, inPit=false, sendPit=false, newMode=false;
 bool isTimingOld = false, isWifiOld=false, isCellOld=false;
 uint8_t lapNumber;
 
@@ -200,6 +202,7 @@ void IRAM_ATTR skidCellInterrupt(){
 void IRAM_ATTR modeButtonInterrupt(){
   if((millis()-lastButtonPress)>500){
     lastButtonPress=millis();
+    newMode=true;
     switch(timingMode){
       case lap:
         modeToSkid();
@@ -211,7 +214,24 @@ void IRAM_ATTR modeButtonInterrupt(){
         modeToLap();
       break;
     }
+    resetTiming();
   }
+  return;
+}
+
+void IRAM_ATTR resetButtonInterrupt(){
+  resetTiming();
+  return;
+}
+
+void resetTiming(){
+  isTiming=false;
+  lapNumber=0;
+  newLap=true;
+  sumOfLap=0;
+  deltaTime=0;
+  inPit=false;
+
   return;
 }
 
@@ -237,7 +257,12 @@ void setup() {
   pinMode(CELLPIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(CELLPIN), lapCellInterrupt, FALLING);
 
+  pinMode(MODEPIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(MODEPIN), modeButtonInterrupt, FALLING);
 
+  pinMode(RESETPIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(RESETPIN), resetButtonInterrupt, FALLING);
+  
 }
 
 void loop() {
@@ -281,7 +306,7 @@ void loop() {
   }
 
   if(isCellOld != digitalRead(CELLPIN)){
-    if(isCellOld)
+    if(!isCellOld)
       setCheckTrue(laser);
     else
       setCheckFalse(laser);
@@ -307,6 +332,11 @@ void loop() {
   if(millis()-lastWifiCheck>2000){
     esp_err_t result = esp_now_send(0, (uint8_t *) &dataWifi, sizeof(uint32_t));
     lastWifiCheck=millis();
+  }
+
+  if(newMode==true){
+    displayMode();
+    newMode=false;
   }
 
   
@@ -361,6 +391,7 @@ void displayMode(){
       lcd.print("SKD");
     break;   
   }
+
 
   return;
 }
@@ -528,8 +559,6 @@ void modeToLap(){
   esp_now_unregister_recv_cb();
   esp_now_register_recv_cb(esp_now_recv_cb_t(lapSlaveInterrupt));
 
-  displayMode();
-
   return;
 }
 
@@ -542,8 +571,6 @@ void modeToAcc(){
   esp_now_unregister_recv_cb();
   esp_now_register_recv_cb(esp_now_recv_cb_t(accSlaveInterrupt));
 
-  displayMode();
-
   return;
 }
 
@@ -554,8 +581,6 @@ void modeToSkid(){
   timingMode=skidpad;
 
   esp_now_unregister_recv_cb();
-
-  displayMode();
 
   return;
 }
