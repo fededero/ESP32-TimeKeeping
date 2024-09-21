@@ -2,10 +2,12 @@
 #include <WiFi.h>
 
 #define CELLPIN 23
+#define LEDPIN 34
 
 // REPLACE WITH YOUR ESP RECEIVER'S MAC ADDRESS
 uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x4F, 0x90, 0xB8}; //c8:f0:9e:4f:90:b8
 uint32_t lastCellTime=0;
+bool isCellOld=false;
 
 typedef struct message_t{
   uint32_t delay;
@@ -73,8 +75,18 @@ void setup() {
   //INTERRUPT
   pinMode(CELLPIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(CELLPIN), cellInterrupt, FALLING);
+
+  pinMode(LEDPIN, OUTPUT);
 }
  
 void loop() {
+
+  if(isCellOld != digitalRead(CELLPIN)){
+    if(!isCellOld)
+      digitalWrite(LEDPIN, LOW);
+    else
+      digitalWrite(LEDPIN, HIGH);
+    isCellOld = !isCellOld;
+  }
 
 }
