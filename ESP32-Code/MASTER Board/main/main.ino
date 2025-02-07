@@ -5,6 +5,10 @@
 
 #include <NimBLEDevice.h>
 
+#include "can100D.h"
+#include "usb_library.h"
+#include "main.h"
+
 #define CELLPIN   23
 #define MODEPIN   35
 #define RESETPIN  34
@@ -482,8 +486,8 @@ void BLEInit(){
   // Start advertising
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(false);
-  pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
+  //pAdvertising->setScanResponseData(false);
+  //pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
   BLEDevice::startAdvertising();
 
   return;
@@ -543,10 +547,15 @@ void lapTimeToDisplay(String lapStr){
 }
 
 void lapTimeToSerial(String lapStr){
-    sendBLE = String(deltaTime).c_str();
-    sendBLE.concat(lapStr.c_str());
-    Serial.println(sendBLE);
-  
+    //sendBLE = String(deltaTime).c_str();
+    //sendBLE.concat(lapStr.c_str());
+    //Serial.println(sendBLE);
+
+    CAN100D_out.Lap.LapNumber=(lapStr[0]<<16) | (lapStr[1]<<8) | lapStr[2];
+    
+    CAN100D_out.Lap.LapTime=deltaTime;
+
+    CAN100D_TX(Lap_ID);
   return;
 }
 
